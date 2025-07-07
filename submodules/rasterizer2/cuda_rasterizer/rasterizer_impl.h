@@ -38,6 +38,8 @@ namespace CudaRasterizer
 		float* depths; // 每个idx点对应的深度
 		char* scanning_space;
 		ushort2* pixels;  // 每个idx点对应的坐标
+		float2* img_xy;
+		float* radii_float;
 		uint32_t* point_offsets;
 		uint32_t* touched;
 

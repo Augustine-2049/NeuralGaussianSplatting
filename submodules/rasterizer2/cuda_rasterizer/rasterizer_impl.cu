@@ -178,6 +178,8 @@ CudaRasterizer::Idx2Img CudaRasterizer::Idx2Img::fromChunk(char*& chunk, size_t 
 	// 指针，数据类型，大小，对齐块长度
 	obtain(chunk, geom.depths, P, 128);
 	obtain(chunk, geom.pixels, P, 128);
+	obtain(chunk, geom.img_xy, P, 128);
+	obtain(chunk, geom.radii_float, P, 128);
 	obtain(chunk, geom.touched, P, 128);
 	cub::DeviceScan::InclusiveSum(nullptr,
 		geom.scan_size,  // 输出：临时存储所需大小 
@@ -555,6 +557,46 @@ __global__ void duplicateIdxDepthImg(
 	gaussian_values_unsorted[off] = idx;        // 存储值（高斯模型的 ID）
 	// 更新偏移量，指向下一个键值对的位置
 }
+__global__ void duplicateIdxDepthImg(
+	int P,
+	int W, int H,
+	const ushort2* pixels,
+	const float2* img_xy,
+	const float* radii_float,
+	const float* depths,
+	const uint32_t* offsets,
+	uint64_t* gaussian_keys_unsorted,
+	uint32_t* gaussian_values_unsorted,
+	int* radii)
+{
+	// 获取当前线程的全局索引
+	auto idx = cg::this_grid().thread_rank();
+	if (idx >= P || radii[idx] == 0)
+		return;
+	uint32_t off = (idx == 0) ? 0 : offsets[idx - 1];
+	int2 point_image_topleft = { (int)(fmaxf(0.0f, img_xy[idx].x - radii_float[idx])), (int)(fmaxf(0.0f, img_xy[idx].y - radii_float[idx])) };
+	int2 point_image_bottomright = { (int)(fminf((float)W, img_xy[idx].x + radii_float[idx] + 1.0f)), (int)(fminf((float)H, img_xy[idx].y + radii_float[idx] + 1.0f)) };
+	for (short i = point_image_topleft.x; i < point_image_bottomright.x; i++)
+	{
+		for (short j = point_image_topleft.y; j < point_image_bottomright.y; j++)
+		{
+			// high [ x | y || depth ] low
+			// 解引用转换后的指针，读取该内存位置的 `uint32_t` 值（即浮点数的二进制表示直接当作整数处理，以支持|操作）。
+			uint64_t key = i;
+			key <<= 16;
+			key |= j;
+			key <<= 32;
+			key |= *((uint32_t*)&depths[idx]);  // float32
+			// 将生成的键和值写入输出数组
+			gaussian_keys_unsorted[off] = key;          // 存储键
+			gaussian_values_unsorted[off] = idx;        // 存储值（高斯模型的 ID）
+			// 更新偏移量，指向下一个键值对的位置
+			off ++;
+		}
+	}
+}
+
+
 
 __device__ glm::vec3 computeColorFromSH(int idx, int deg, int max_coeffs, const glm::vec3* means, glm::vec3 campos, const float* shs)
 {
@@ -731,6 +773,7 @@ GETMAP(
 	out_depth[pix_idx] = depths[gaussian_idx];
 	for (int i = 0; i < 3; i++) {
 		out_color[pix_idx * 3 + i] = (normal[gaussian_idx * 3 + i] + 1) * 0.5f;
+		// out_color[pix_idx * 3 + i] = depths[gaussian_idx];
 	}
 	//glm::vec3 res = computeColorFromSH(gaussian_idx, M,
 	//	(glm::vec3*)means3D, *(glm::vec3*)campos, sh); // 这个定义在本函数上侧，而非forward中
@@ -772,7 +815,7 @@ CopyFeature(
 
 
 	for (int i = 1; i < NUM_FEATURES; i++) {
-		dL_dfeature_vector[gaussian_idx * NUM_FEATURES + i] = out_feature[pix_idx * NUM_FEATURES + i];
+		dL_dfeature_vector[gaussian_idx * NUM_FEATURES + i] += out_feature[pix_idx * NUM_FEATURES + i];
 	}
 }
 
@@ -832,6 +875,8 @@ int CudaRasterizer::Rasterizer::getidxmap(
 		tan_fovx, tan_fovy,
 		radii,
 		idxState.pixels,
+		idxState.img_xy,
+		idxState.radii_float,
 		idxState.depths, // 每个像素的深度
 		idxState.touched  // 每个像素是否被碰到
 	), debug)
@@ -860,7 +905,10 @@ int CudaRasterizer::Rasterizer::getidxmap(
 	//// ### step5 : 为每个渲染实例生成 [ tile | depth ] 键 #####
 	duplicateIdxDepthImg << <(P + 255) / 256, 256 >> > (
 		P,
+		width, height,
 		idxState.pixels,
+		idxState.img_xy,
+		idxState.radii_float,
 		idxState.depths,
 		idxState.point_offsets,
 		binningimgState.point_list_keys_unsorted,

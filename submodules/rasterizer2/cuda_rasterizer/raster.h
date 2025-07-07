@@ -20,6 +20,8 @@ namespace RASTER
 		const float tan_fovy,
 		int* radii,
 		ushort2* pixels,
+		float2* img_xy,
+		float* radii_float,
 		float* depths,
 		uint32_t* touched
 	);

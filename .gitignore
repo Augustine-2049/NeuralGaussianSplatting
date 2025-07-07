@@ -67,6 +67,13 @@ screenshots/
 *.tmp
 *.temp
 
+# Video rendering
+temp_frames_*/
+videos/
+
+# Feature analysis
+feature_analysis/
+
 # Data files
 *.ply
 *.obj

@@ -137,7 +137,7 @@ def render2(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor,
 
     means3D = pc.get_xyz
     means2D = screenspace_points
-    normal = torch.zeros_like(means3D)  # 暂时使用零向量作为法向量
+    normal = pc.get_normals
     feature_vector = pc.get_neural_features  # 使用64维特征向量
 
     # If precomputed 3d covariance is provided, use it. If not, then it will be computed from
@@ -203,6 +203,7 @@ def render2(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor,
             "visibility_filter" : visibility_filter,
             "radii": radii,
             "featuremap": featuremap,
+            "colmap": colmap,
             "depthmap": depthmap,
             "idxmap": idxmap,
             "cnn_output": cnn_output,

@@ -26,6 +26,7 @@ from utils.loss_utils import l1_loss, ssim
 from utils.image_utils import psnr, show_img2
 from utils.general_utils import safe_state
 from utils.video_utils import render_video_frames
+from utils.feature_analysis import analyze_gaussian_features, save_feature_history
 try:
     from torch.utils.tensorboard import SummaryWriter
     TENSORBOARD_FOUND = True
@@ -87,6 +88,7 @@ def training(dataset, opt, pipe,
                                                                       render_pkg["viewspace_points"], \
                                                                       render_pkg["visibility_filter"], \
                                                                       render_pkg["radii"]
+            # test_image = render_pkg["depthmap"]
         else:
             break
 
@@ -103,10 +105,16 @@ def training(dataset, opt, pipe,
                 wait_key=1  # 设置为1ms，让程序继续执行，窗口自动更新
             )
         
-        # 每5000次迭代渲染视频
-        if iteration % 1000 == 0:
-            print(f"\n[ITER {iteration}] Rendering video...")
-            render_video_frames(scene, gaussians, pipe, background, render2 if sw == 2 else render, scene.model_path, iteration)
+        # 每1000次迭代渲染视频和分析特征
+        if iteration % 100 == 0:
+            print(f"\n[ITER {iteration}] Rendering video and analyzing features...")
+            render_video_frames(scene, gaussians, pipe, background, render2 if sw == 2 else render,
+                                # scene.model_path, iteration, use_depth=True, use_colmap=False)
+                                scene.model_path, iteration, use_depth=False, use_colmap=True)
+
+            # 分析高斯点特征分布
+            feature_stats = analyze_gaussian_features(gaussians, scene.model_path, iteration)
+            save_feature_history(iteration, feature_stats, scene.model_path)
 
         # Loss
         Ll1 = l1_loss(image, gt_image)
