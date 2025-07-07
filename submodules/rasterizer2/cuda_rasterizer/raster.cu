@@ -1,6 +1,6 @@
 #include "raster.h"
 #include "auxiliary.h"
-#include "aux.h"
+#include "aux_new.h"
 
 #include <cooperative_groups.h>
 #include <cooperative_groups/reduce.h>

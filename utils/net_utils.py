@@ -52,9 +52,9 @@ class DoubleConv(nn.Module):
     def forward(self, x):
         return self.double_conv(x)
 
-class UNet3Layer(nn.Module):
+class UNet(nn.Module):
     def __init__(self, in_channels=64, out_channels=3, base_channels=64):
-        super(UNet3Layer, self).__init__()
+        super(UNet, self).__init__()
         # Encoder   
         self.enc1 = DoubleConv(in_channels, base_channels)
         self.enc2 = DoubleConv(base_channels, base_channels * 2)
@@ -95,13 +95,13 @@ class UNet3Layer(nn.Module):
 def test_unet3layer():
     H, W = 64, 64
     x = torch.randn(H, W, 64)
-    model = UNet3Layer()
+    model = UNet()
     rgb = model(x)  # rgb.shape == [H, W, 3]
     print(rgb.shape)
 
-class CNN5Layer(nn.Module):
+class CNN(nn.Module):
     def __init__(self, in_channels=64, mid_channels=100, out_channels=81, kernel_size=5):
-        super(CNN5Layer, self).__init__()
+        super(CNN, self).__init__()
         padding = kernel_size // 2  # 保持空间尺寸不变
         self.conv1 = nn.Conv2d(in_channels, mid_channels, kernel_size=kernel_size, padding=padding)
         self.conv2 = nn.Conv2d(mid_channels, mid_channels, kernel_size=kernel_size, padding=padding)
@@ -131,11 +131,41 @@ class CNN5Layer(nn.Module):
         out = x.squeeze(0).permute(1, 2, 0)  # [H, W, 81]
         return out
 
+class Denoiser(nn.Module):
+    def __init__(self, kernel_size=9):
+        super(Denoiser, self).__init__()
+        self.kernel_size = kernel_size  
+        self.padding = kernel_size // 2
+
+    def forward(self, unet_out, cnn_out):
+        """
+        unet_out: [H, W, 3]
+        cnn_out: [H, W, 81]  # 81 = 9*9
+        """
+        H, W, C = unet_out.shape
+        assert C == 3
+        # 1. 生成动态卷积核
+        kernels = cnn_out.view(H, W, self.kernel_size, self.kernel_size)  # [H, W, 9, 9]
+        # 2. 对unet_out每个像素做动态卷积
+        # 先pad
+        unet_out = unet_out.permute(2, 0, 1).unsqueeze(0)  # [1, 3, H, W]
+        unet_pad = F.pad(unet_out, [self.padding]*4, mode='reflect')  # [1, 3, H+8, W+8]
+        # unfold提取每个像素的9x9邻域
+        patches = F.unfold(unet_pad, kernel_size=self.kernel_size)  # [1, 3*81, H*W]
+        patches = patches.view(1, 3, self.kernel_size*self.kernel_size, H, W)  # [1, 3, 81, H, W]
+        # 动态核加权
+        kernels = kernels.permute(2, 3, 0, 1).unsqueeze(0)  # [1, 9, 9, H, W]
+        kernels = kernels.reshape(1, 1, self.kernel_size*self.kernel_size, H, W)  # [1, 1, 81, H, W]
+        out = (patches * kernels).sum(dim=2)  # [1, 3, H, W]
+        out = out.squeeze(0).permute(1, 2, 0)  # [H, W, 3]
+        return out
+
+
 # 用法示例
 def test_cnn5layer():
     H, W = 32, 32
     x = torch.randn(H, W, 64)
-    model = CNN5Layer()
+    model = CNN()
     y = model(x)  # y.shape == [H, W, 81]
     print(y.shape)
 

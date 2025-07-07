@@ -1,8 +1,102 @@
+# Python
 *.pyc
-.vscode
-output
-build
-diff_rasterization/diff_rast.egg-info
-diff_rasterization/dist
-tensorboard_3d
-screenshots
+*.pyo
+*.pyd
+__pycache__/
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.egg-info/
+
+# PyTorch
+*.pth
+*.pt
+*.ckpt
+
+# CUDA/C++
+*.o
+*.obj
+*.so
+*.dll
+*.dylib
+*.exe
+*.out
+*.app
+
+# Build directories
+build/
+build_*/
+cmake-build-*/
+out/
+bin/
+lib/
+obj/
+
+# Submodules build directories
+submodules/*/build/
+submodules/*/dist/
+submodules/*/*.egg-info/
+submodules/*/__pycache__/
+submodules/*/*.so
+submodules/*/*.pyd
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Project specific
+output/
+../NGSassist/output/
+tensorboard_3d/
+screenshots/
+*.log
+*.tmp
+*.temp
+
+# Data files
+*.ply
+*.obj
+*.fbx
+*.blend
+*.blend1
+
+# Video files (if you don't want to track them)
+*.mp4
+*.avi
+*.mov
+*.mkv
+
+# Test files
+test_video_data/
+test_*/
+temp_*/
+
+# Environment
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Conda
+.conda/

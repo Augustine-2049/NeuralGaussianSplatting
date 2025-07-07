@@ -39,6 +39,7 @@ class SceneInfo(NamedTuple):
     point_cloud: BasicPointCloud
     train_cameras: list
     test_cameras: list
+    video_cameras: list
     nerf_normalization: dict
     ply_path: str
 
@@ -188,11 +189,12 @@ def readColmapSceneInfo(path, images, eval, llffhold=8):
     scene_info = SceneInfo(point_cloud=pcd,
                            train_cameras=train_cam_infos,
                            test_cameras=test_cam_infos,
+                           video_cameras=[],
                            nerf_normalization=nerf_normalization,
                            ply_path=ply_path)
     return scene_info
 
-def readCamerasFromTransforms(path, transformsfile, white_background, extension=".png"):
+def readCamerasFromTransforms(path, transformsfile, white_background, extension=".png", default_width=None, default_height=None):
     cam_infos = []
 
     with open(os.path.join(path, transformsfile)) as json_file:
@@ -214,22 +216,29 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
 
             image_path = os.path.join(path, cam_name)
             image_name = Path(cam_name).stem
-            image = Image.open(image_path)
+            
+            # 检查图片是否存在，如果不存在则创建一个空的图片
+            if os.path.exists(image_path):
+                image = Image.open(image_path)
+                im_data = np.array(image.convert("RGBA"))
+                bg = np.array([1,1,1]) if white_background else np.array([0, 0, 0])
+                norm_data = im_data / 255.0
+                arr = norm_data[:,:,:3] * norm_data[:, :, 3:4] + bg * (1 - norm_data[:, :, 3:4])
+                image = Image.fromarray(np.array(arr*255.0, dtype=np.byte), "RGB")
+                width, height = image.size
+            else:
+                # 如果图片不存在，使用提供的默认尺寸或800x800
+                width = default_width if default_width is not None else 800
+                height = default_height if default_height is not None else 800
+                # 创建一个空的黑色图片
+                image = Image.new('RGB', (width, height), (0, 0, 0))
 
-            im_data = np.array(image.convert("RGBA"))
-
-            bg = np.array([1,1,1]) if white_background else np.array([0, 0, 0])
-
-            norm_data = im_data / 255.0
-            arr = norm_data[:,:,:3] * norm_data[:, :, 3:4] + bg * (1 - norm_data[:, :, 3:4])
-            image = Image.fromarray(np.array(arr*255.0, dtype=np.byte), "RGB")
-
-            fovy = focal2fov(fov2focal(fovx, image.size[0]), image.size[1])
+            fovy = focal2fov(fov2focal(fovx, width), height)
             FovY = fovy 
             FovX = fovx
 
             cam_infos.append(CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
-                            image_path=image_path, image_name=image_name, width=image.size[0], height=image.size[1]))
+                            image_path=image_path, image_name=image_name, width=width, height=height))
             
     return cam_infos
 
@@ -238,6 +247,21 @@ def readNerfSyntheticInfo(path, white_background, eval, extension=".png"):
     train_cam_infos = readCamerasFromTransforms(path, "transforms_train.json", white_background, extension)
     print("Reading Test Transforms")
     test_cam_infos = readCamerasFromTransforms(path, "transforms_test.json", white_background, extension)
+    
+    # 读取视频相机信息
+    video_cam_infos = []
+    video_transforms_path = os.path.join(path, "transforms_video.json")
+    if os.path.exists(video_transforms_path):
+        print("Reading Video Transforms")
+        # 从训练相机中获取分辨率信息
+        default_width = None
+        default_height = None
+        if train_cam_infos:
+            default_width = train_cam_infos[0].width
+            default_height = train_cam_infos[0].height
+        video_cam_infos = readCamerasFromTransforms(path, "transforms_video.json", white_background, extension, default_width, default_height)
+    else:
+        print("Warning: transforms_video.json not found, video rendering will be skipped")
     
     if not eval:
         train_cam_infos.extend(test_cam_infos)
@@ -266,6 +290,7 @@ def readNerfSyntheticInfo(path, white_background, eval, extension=".png"):
     scene_info = SceneInfo(point_cloud=pcd,
                            train_cameras=train_cam_infos,
                            test_cameras=test_cam_infos,
+                           video_cameras=video_cam_infos,
                            nerf_normalization=nerf_normalization,
                            ply_path=ply_path)
     return scene_info

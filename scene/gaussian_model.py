@@ -20,6 +20,7 @@ from utils.sh_utils import RGB2SH
 from simple_knn._C import distCUDA2
 from utils.graphics_utils import BasicPointCloud
 from utils.general_utils import strip_symmetric, build_scaling_rotation
+from utils.net_utils import FeatureToRGBMLP, UNet, CNN, Denoiser
 
 class GaussianModel:
 
@@ -57,6 +58,13 @@ class GaussianModel:
         self.optimizer = None
         self.percent_dense = 0
         self.spatial_lr_scale = 0
+        
+        # 初始化神经网络
+        self.mlp = None
+        self.unet = None
+        self.cnn = None
+        self.denoiser = None
+        
         self.setup_functions()
 
     def capture(self):
@@ -154,6 +162,64 @@ class GaussianModel:
         self._rotation = nn.Parameter(rots.requires_grad_(True))
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+        
+        # 初始化神经网络
+        self._init_networks()
+
+    def _init_networks(self):
+        """初始化神经网络"""
+        if self.mlp is None:
+            self.mlp = FeatureToRGBMLP(in_features=64, hidden_features=128, out_features=3).cuda()
+        if self.unet is None:
+            self.unet = UNet(in_channels=64, out_channels=3, base_channels=64).cuda()
+        if self.cnn is None:
+            self.cnn = CNN(in_channels=64, mid_channels=100, out_channels=81, kernel_size=5).cuda()
+        if self.denoiser is None:
+            self.denoiser = Denoiser(kernel_size=9).cuda()
+
+    def get_mlp_output(self, features):
+        """使用MLP网络处理特征"""
+        if self.mlp is None:
+            self._init_networks()
+        return self.mlp(features)
+
+    def get_unet_output(self, features):
+        """使用UNet网络处理特征"""
+        if self.unet is None:
+            self._init_networks()
+        return self.unet(features)
+
+    def get_cnn_output(self, features):
+        """使用CNN网络处理特征"""
+        if self.cnn is None:
+            self._init_networks()
+        return self.cnn(features)
+
+    def get_denoised_output(self, unet_out, cnn_out):
+        """使用降噪网络处理输出"""
+        if self.denoiser is None:
+            self._init_networks()
+        return self.denoiser(unet_out, cnn_out)
+
+    def process_features_with_networks(self, features):
+        """使用所有网络处理特征，返回完整的处理结果"""
+        if self.mlp is None:
+            self._init_networks()
+        
+        # 使用各个网络处理特征
+        mlp_output = self.get_mlp_output(features)
+        unet_output = self.get_unet_output(features)
+        cnn_output = self.get_cnn_output(features)
+        
+        # 使用降噪网络处理UNet和CNN的输出
+        denoised_output = self.get_denoised_output(unet_output, cnn_output)
+        
+        return {
+            'mlp_output': mlp_output,
+            'unet_output': unet_output,
+            'cnn_output': cnn_output,
+            'denoised_output': denoised_output
+        }
 
     def training_setup(self, training_args):
         self.percent_dense = training_args.percent_dense
@@ -169,6 +235,16 @@ class GaussianModel:
             {'params': [self._scaling], 'lr': training_args.scaling_lr, "name": "scaling"},
             {'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"}
         ]
+        
+        # 添加网络参数到优化器
+        if self.mlp is not None:
+            l.append({'params': self.mlp.parameters(), 'lr': training_args.feature_lr, "name": "mlp"})
+        if self.unet is not None:
+            l.append({'params': self.unet.parameters(), 'lr': training_args.feature_lr, "name": "unet"})
+        if self.cnn is not None:
+            l.append({'params': self.cnn.parameters(), 'lr': training_args.feature_lr, "name": "cnn"})
+        if self.denoiser is not None:
+            l.append({'params': self.denoiser.parameters(), 'lr': training_args.feature_lr, "name": "denoiser"})
 
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
         self.xyz_scheduler_args = get_expon_lr_func(lr_init=training_args.position_lr_init*self.spatial_lr_scale,
