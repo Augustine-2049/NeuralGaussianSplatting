@@ -23,6 +23,7 @@ namespace cg = cooperative_groups;
 #include "raster.h"
 
 
+
 uint32_t getHigherMsb(uint32_t n)
 {
 	uint32_t msb = sizeof(n) * 4;
@@ -749,10 +750,10 @@ GETMAP(
 	
 	// ranges[pix_idx].y != ranges[pix_idx].x，则找最近的点point_list[ranges[pix_idx].x];
 	// === begin 背面剔除 === // 
-	//glm::vec3 pos = ((glm::vec3*)means3D)[gaussian_idx];
-	//glm::vec3 dir = pos - *(glm::vec3*)campos;
-	//dir = dir / glm::length(dir);
-	//glm::vec3 nor = ((glm::vec3*)normal)[gaussian_idx];
+	glm::vec3 pos = ((glm::vec3*)means3D)[gaussian_idx];
+	glm::vec3 dir = pos - *(glm::vec3*)campos;
+	dir = dir / glm::length(dir);
+	glm::vec3 nor = ((glm::vec3*)normal)[gaussian_idx];
 	//if (glm::dot(dir, nor) >= 0) { // 最近的点可能是个背面，背面剔除
 	//	out_idx[pix_idx] = -1;
 	//	return;
@@ -762,19 +763,28 @@ GETMAP(
 	out_idx[pix_idx] = gaussian_idx;
 	out_feature[pix_idx * NUM_FEATURES] = depths[gaussian_idx];  // 0
 
+	// 对方向向量进行位置编码
+	float encoded_dir[POSITIONAL_ENCODING_DIMS];
+	positional_encoding_3d(dir, encoded_dir);
+	
+	// 将位置编码结果存储到featuremap的1-24位置
+	for (int i = 0; i < POSITIONAL_ENCODING_DIMS; i++) {
+		out_feature[pix_idx * NUM_FEATURES + 1 + i] = encoded_dir[i];
+	}
+	
+	// 将原始方向向量存储到colmap中
+	out_color[pix_idx * 3 + 0] = dir.x;
+	out_color[pix_idx * 3 + 1] = dir.y;
+	out_color[pix_idx * 3 + 2] = dir.z;
 
-	//out_feature[pix_idx * NUM_FEATURES + 1] = dir.x;
-	//out_feature[pix_idx * NUM_FEATURES + 2] = dir.y;
-	//out_feature[pix_idx * NUM_FEATURES + 3] = dir.z;
-
-	for (int i = 1; i < NUM_FEATURES; i++) {
+	for (int i = 25; i < NUM_FEATURES; i++) {
 		out_feature[pix_idx * NUM_FEATURES + i] = feature_vector[gaussian_idx * NUM_FEATURES + i];
 	}
 	out_depth[pix_idx] = depths[gaussian_idx];
-	for (int i = 0; i < 3; i++) {
-		out_color[pix_idx * 3 + i] = (normal[gaussian_idx * 3 + i] + 1) * 0.5f;
-		// out_color[pix_idx * 3 + i] = depths[gaussian_idx];
-	}
+	// for (int i = 0; i < 3; i++) {
+	// 	out_color[pix_idx * 3 + i] = (normal[gaussian_idx * 3 + i] + 1) * 0.5f;
+	// 	// out_color[pix_idx * 3 + i] = depths[gaussian_idx];
+	// }
 	//glm::vec3 res = computeColorFromSH(gaussian_idx, M,
 	//	(glm::vec3*)means3D, *(glm::vec3*)campos, sh); // 这个定义在本函数上侧，而非forward中
 	//for (int i = 0; i < 3; i++) {
@@ -814,7 +824,7 @@ CopyFeature(
 		return;
 
 
-	for (int i = 1; i < NUM_FEATURES; i++) {
+	for (int i = 25; i < NUM_FEATURES; i++) {
 		dL_dfeature_vector[gaussian_idx * NUM_FEATURES + i] += out_feature[pix_idx * NUM_FEATURES + i];
 	}
 }

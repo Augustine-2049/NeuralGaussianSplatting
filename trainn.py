@@ -21,6 +21,24 @@ from tqdm import tqdm
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
 
+# # Pillow兼容性补丁 - 解决ANTIALIAS问题
+# try:
+#     import PIL.Image
+#     # 如果ANTIALIAS不存在，使用LANCZOS
+#     if not hasattr(PIL.Image, 'ANTIALIAS'):
+#         PIL.Image.ANTIALIAS = PIL.Image.Resampling.LANCZOS
+#     # 如果BICUBIC不存在，使用BICUBIC
+#     if not hasattr(PIL.Image, 'BICUBIC'):
+#         PIL.Image.BICUBIC = PIL.Image.Resampling.BICUBIC
+#     # 如果BILINEAR不存在，使用BILINEAR
+#     if not hasattr(PIL.Image, 'BILINEAR'):
+#         PIL.Image.BILINEAR = PIL.Image.Resampling.BILINEAR
+#     # 如果NEAREST不存在，使用NEAREST
+#     if not hasattr(PIL.Image, 'NEAREST'):
+#         PIL.Image.NEAREST = PIL.Image.Resampling.NEAREST
+# except ImportError:
+#     pass
+
 ## utils.function
 from utils.loss_utils import l1_loss, ssim
 from utils.image_utils import psnr, show_img2
@@ -106,11 +124,11 @@ def training(dataset, opt, pipe,
             )
         
         # 每1000次迭代渲染视频和分析特征
-        if iteration % 100 == 0:
+        if iteration % 5000 == 0:
             print(f"\n[ITER {iteration}] Rendering video and analyzing features...")
             render_video_frames(scene, gaussians, pipe, background, render2 if sw == 2 else render,
                                 # scene.model_path, iteration, use_depth=True, use_colmap=False)
-                                scene.model_path, iteration, use_depth=False, use_colmap=True)
+                                scene.model_path, iteration, use_depth=False, use_colmap=False)
 
             # 分析高斯点特征分布
             feature_stats = analyze_gaussian_features(gaussians, scene.model_path, iteration)

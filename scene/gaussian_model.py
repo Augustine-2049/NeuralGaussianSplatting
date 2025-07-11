@@ -21,6 +21,7 @@ from simple_knn._C import distCUDA2
 from utils.graphics_utils import BasicPointCloud
 from utils.general_utils import strip_symmetric, build_scaling_rotation
 from utils.net_utils import FeatureToRGBMLP, UNet, CNN, Denoiser
+import tinycudann as tcnn
 
 class GaussianModel:
 
@@ -65,6 +66,8 @@ class GaussianModel:
         self.unet = None
         self.cnn = None
         self.denoiser = None
+        self.embed_fn = None
+
         
         self.setup_functions()
 
@@ -189,6 +192,18 @@ class GaussianModel:
         if self.denoiser is None:
             self.denoiser = Denoiser(kernel_size=9).cuda()
 
+        # Option 2: separate modules. Slower but more flexible.
+        n_input_dims = 3
+        self.encoding = tcnn.Encoding(n_input_dims, {
+            "otype": "Frequency",
+            "n_frequencies": 4
+            },
+            dtype=torch.float32)
+        # self.encoding.n_output_dims
+
+
+
+
     def get_mlp_output(self, features):
         """使用MLP网络处理特征"""
         if self.mlp is None:
@@ -257,6 +272,8 @@ class GaussianModel:
             l.append({'params': self.cnn.parameters(), 'lr': training_args.feature_lr, "name": "cnn"})
         if self.denoiser is not None:
             l.append({'params': self.denoiser.parameters(), 'lr': training_args.feature_lr, "name": "denoiser"})
+        if self.encoding is not None:
+            l.append({'params': self.encoding.parameters(), 'lr': training_args.feature_lr, "name": "encoding"})
 
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
         self.xyz_scheduler_args = get_expon_lr_func(lr_init=training_args.position_lr_init*self.spatial_lr_scale,

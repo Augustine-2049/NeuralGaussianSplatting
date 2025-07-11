@@ -179,6 +179,10 @@ def render2(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor,
         shs = shs,
         scales = scales,
         rotations = rotations)
+    
+    # 位置编码已经在CUDA中完成，featuremap的1-24位置已经包含编码后的方向信息
+    # 直接使用featuremap，不需要额外的编码步骤
+    featuremap_encoded = featuremap
 
     # 计算可见性过滤器（基于idxmap）
     visibility_filter = idxmap > 0
@@ -186,12 +190,9 @@ def render2(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor,
     # 计算radii（基于depthmap或其他方法）
     radii = torch.ones_like(means3D[:, 0])  # 暂时使用默认值
 
-    # 使用神经网络处理featuremap
-    # 确保featuremap的shape正确 [H, W, 64]
-    
-    # 通过CNN和UNet处理featuremap
-    cnn_output = pc.get_cnn_output(featuremap)  # [H, W, 81]
-    unet_output = pc.get_unet_output(featuremap)  # [H, W, 3]
+    # 使用神经网络处理featuremap（已覆盖方向编码）
+    cnn_output = pc.get_cnn_output(featuremap_encoded)  # [H, W, 81]
+    unet_output = pc.get_unet_output(featuremap_encoded)  # [H, W, 3]
     
     # 通过denoiser得到最终的颜色图
     final_render = pc.get_denoised_output(unet_output, cnn_output).permute(2, 0, 1 )  # [H, W, 3] -> [3, H, W]
@@ -202,7 +203,7 @@ def render2(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor,
             "viewspace_points": screenspace_points,
             "visibility_filter" : visibility_filter,
             "radii": radii,
-            "featuremap": featuremap,
+            "featuremap": featuremap_encoded,
             "colmap": colmap,
             "depthmap": depthmap,
             "idxmap": idxmap,
