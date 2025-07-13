@@ -22,7 +22,24 @@ namespace cg = cooperative_groups;
 #include "backward.h"
 #include "raster.h"
 
-
+// 位置编码函数 - 将3D方向向量编码为24维特征
+__device__ void positional_encoding_3d(const float3& dir, float* encoded_output) {
+    // 对每个输入维度进行频率编码
+    for (int dim = 0; dim < 3; dim++) {
+        float x = (dim == 0) ? dir.x : ((dim == 1) ? dir.y : dir.z);
+        
+        // 对每个频率进行编码
+        for (int freq = 0; freq < NUM_FREQUENCIES; freq++) {
+            float frequency = powf(2.0f, freq);
+            float sin_val = sinf(frequency * PI * x);
+            float cos_val = cosf(frequency * PI * x);
+            
+            int base_idx = dim * NUM_FREQUENCIES * 2 + freq * 2;
+            encoded_output[base_idx] = sin_val;
+            encoded_output[base_idx + 1] = cos_val;
+        }
+    }
+}
 
 uint32_t getHigherMsb(uint32_t n)
 {
@@ -765,7 +782,7 @@ GETMAP(
 
 	// 对方向向量进行位置编码
 	float encoded_dir[POSITIONAL_ENCODING_DIMS];
-	positional_encoding_3d(dir, encoded_dir);
+	positional_encoding_3d((const float3&)dir, encoded_dir);
 	
 	// 将位置编码结果存储到featuremap的1-24位置
 	for (int i = 0; i < POSITIONAL_ENCODING_DIMS; i++) {

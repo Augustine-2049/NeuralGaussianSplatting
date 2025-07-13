@@ -12,7 +12,7 @@
 import os
 import torch
 from random import randint
-from gaussian_renderer import render, render2, network_gui
+from gaussian_renderer import render, render2, render1, network_gui
 import sys
 from scene import Scene, GaussianModel
 import uuid
@@ -100,6 +100,12 @@ def training(dataset, opt, pipe,
                                                                       render_pkg["viewspace_points"], \
                                                                       render_pkg["visibility_filter"], \
                                                                       render_pkg["radii"]
+        elif sw == 1:
+            render_pkg = render1(viewpoint_cam, gaussians, pipe, bg)
+            image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], \
+                                                                      render_pkg["viewspace_points"], \
+                                                                      render_pkg["visibility_filter"], \
+                                                                      render_pkg["radii"]
         elif sw == 2:
             render_pkg = render2(viewpoint_cam, gaussians, pipe, bg)
             image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], \
@@ -126,7 +132,7 @@ def training(dataset, opt, pipe,
         # 每1000次迭代渲染视频和分析特征
         if iteration % 5000 == 0:
             print(f"\n[ITER {iteration}] Rendering video and analyzing features...")
-            render_video_frames(scene, gaussians, pipe, background, render2 if sw == 2 else render,
+            render_video_frames(scene, gaussians, pipe, background, render2 if sw == 2 else render1 if sw == 1 else render,
                                 # scene.model_path, iteration, use_depth=True, use_colmap=False)
                                 scene.model_path, iteration, use_depth=False, use_colmap=False)
 
@@ -242,7 +248,7 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
 
 if __name__ == "__main__":
     # Set up command line argument parser
-    switch=[2]  # 添加sw=2选项
+    switch=[1, 2]  # 添加sw=2选项
     # 0 : 3dgs (原始render)
     # 1 : puremlp (预留)
     # 2 : net (使用render2，包含神经网络pipeline)

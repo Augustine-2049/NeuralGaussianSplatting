@@ -52,7 +52,8 @@ def show_img(
         if img_np.max() <= 1.0:  # 假设范围是 [0, 1]
             img_np = (img_np * 255).astype(np.uint8)
         else:
-            img_np = img_np.astype(np.uint8)
+            # 对于超出 [0, 1] 范围的值，先进行 clip 操作
+            img_np = np.clip(img_np, 0, 255).astype(np.uint8)
 
     # 转换颜色空间（如果需要）
     if not is_bgr:
@@ -102,11 +103,10 @@ def show_img2(
             img_np = img_np.transpose(1, 2, 0)
 
         # 检查数据类型并缩放到 [0, 255]（如果是浮点数）
+        
+        img_np = torch.clamp(img_np, 0.0, 1.0)
         if img_np.dtype == np.float32 or img_np.dtype == np.float64:
-            if img_np.max() <= 1.0:  # 假设范围是 [0, 1]
-                img_np = (img_np * 255).astype(np.uint8)
-            else:
-                img_np = img_np.astype(np.uint8)
+            img_np = (img_np * 255).astype(np.uint8)
 
         # 转换颜色空间（如果需要）
         if not is_bgr:
@@ -182,7 +182,8 @@ def show_img_grid(
             if img_np.max() <= 1.0:
                 img_np = (img_np * 255).astype(np.uint8)
             else:
-                img_np = img_np.astype(np.uint8)
+                # 对于超出 [0, 1] 范围的值，先进行 clip 操作
+                img_np = np.clip(img_np, 0, 255).astype(np.uint8)
 
         if not is_bgr:
             img_np = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)

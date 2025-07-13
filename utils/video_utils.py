@@ -74,7 +74,8 @@ def render_video_frames(scene, gaussians, pipe, background, render_func, output_
             frames.append(image_np)
     
     # 创建视频并保存到统一目录
-    video_name = f"video_iter_{iteration}_depth.mp4" if use_depth else f"video_iter_{iteration}.mp4"
+    render_func_name = render_func.__name__
+    video_name = f"{render_func_name}_iter_{iteration}_depth.mp4" if use_depth else f"{render_func_name}_iter_{iteration}.mp4"
     create_video_from_frames(frames, temp_frames_dir, video_name)
     
     # 将视频移动到统一目录

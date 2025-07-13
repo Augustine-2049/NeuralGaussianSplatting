@@ -79,7 +79,7 @@ void RASTER::preprocess(
 )  // target : 相机坐标系深度 float * P
 {
 	// NUM_CHANNELS=3在全局变量中声明
-	float S = 1.0f;
+	float S = 3.0f;
 	preprocessCUDA<NUM_CHANNELS> << <(P + 255) / 256, 256 >> > (
 		P,
 		orig_points,

@@ -3,6 +3,7 @@
 
 #include "config.h"
 #include "stdio.h"
+#include <cuda_runtime.h>
 
 #define BLOCK_SIZE (BLOCK_X * BLOCK_Y)
 #define NUM_WARPS (BLOCK_SIZE/32)
@@ -30,27 +31,7 @@ __device__ const float SH_C3[] = {
 // 位置编码相关常量
 #define PI 3.14159265358979323846f
 #define NUM_FREQUENCIES 4
-#define POSITIONAL_ENCODING_DIMS (3 * NUM_FREQUENCIES * 2)  // 24维
-
-// 位置编码函数 - 将3D方向向量编码为24维特征
-__device__ void positional_encoding_3d(const float3& dir, float* encoded_output) {
-    // 对每个输入维度进行频率编码
-    for (int dim = 0; dim < 3; dim++) {
-        float x = (dim == 0) ? dir.x : ((dim == 1) ? dir.y : dir.z);
-        
-        // 对每个频率进行编码
-        for (int freq = 0; freq < NUM_FREQUENCIES; freq++) {
-            float frequency = powf(2.0f, freq);
-            float sin_val = sinf(frequency * PI * x);
-            float cos_val = cosf(frequency * PI * x);
-            
-            int base_idx = dim * NUM_FREQUENCIES * 2 + freq * 2;
-            encoded_output[base_idx] = sin_val;
-            encoded_output[base_idx + 1] = cos_val;
-        }
-    }
-}
-
+#define POSITIONAL_ENCODING_DIMS 24  // 24维
 
 
 
