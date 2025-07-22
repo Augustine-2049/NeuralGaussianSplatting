@@ -18,6 +18,7 @@ from scene import Scene, GaussianModel
 import uuid
 from tqdm import tqdm
 
+
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
 
@@ -130,7 +131,7 @@ def training(dataset, opt, pipe,
             )
         
         # 每1000次迭代渲染视频和分析特征
-        if iteration % 5000 == 0:
+        if iteration % 100 == 0:
             print(f"\n[ITER {iteration}] Rendering video and analyzing features...")
             render_video_frames(scene, gaussians, pipe, background, render2 if sw == 2 else render1 if sw == 1 else render,
                                 # scene.model_path, iteration, use_depth=True, use_colmap=False)
@@ -248,7 +249,7 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
 
 if __name__ == "__main__":
     # Set up command line argument parser
-    switch=[1, 2]  # 添加sw=2选项
+    switch=[2]  # 添加sw=2选项
     # 0 : 3dgs (原始render)
     # 1 : puremlp (预留)
     # 2 : net (使用render2，包含神经网络pipeline)

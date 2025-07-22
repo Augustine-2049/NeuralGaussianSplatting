@@ -4,6 +4,11 @@ import numpy as np
 import os
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+HISTORY_SAVE = True
+def clear_gpu_cache():
+    """清理GPU缓存"""
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 def render_video_frames(scene, gaussians, pipe, background, render_func, output_dir, iteration, use_depth=False, use_colmap=False):
     """
@@ -32,52 +37,112 @@ def render_video_frames(scene, gaussians, pipe, background, render_func, output_
     temp_frames_dir = os.path.join(output_dir, f"temp_frames_iter_{iteration}")
     os.makedirs(temp_frames_dir, exist_ok=True)
     
+    if HISTORY_SAVE:
+        history_imgs = []
+        history_denoisers = []
+        history_features = []
+        history_aggregations = []
+    
     print(f"Rendering {len(video_cameras)} video frames for iteration {iteration}...")
     
     frames = []
-    for i, viewpoint_cam in enumerate(tqdm(video_cameras, desc="Rendering video frames")):
-        render_pkg = render_func(viewpoint_cam, gaussians, pipe, background)
-        if use_colmap:
-            image = render_pkg["colmap"]
-            if image.dim() == 3 and image.shape[0] == 3:  # [3, H, W]
-                image = image.permute(1, 2, 0)  # [H, W, 3]
-            image = torch.clamp(image, 0.0, 1.0)
-            image_np = (image.detach().cpu().numpy() * 255).astype(np.uint8)
-            frame_path = os.path.join(temp_frames_dir, f"frame_{i:04d}.png")
-            cv2.imwrite(frame_path, cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR))
-            frames.append(image_np)
-        elif use_depth:
-            # 用深度图
-            depth = render_pkg["depthmap"]
-            if depth.dim() == 3:
-                depth = depth.squeeze(0)
-            depth_np = depth.detach().cpu().numpy()
-            depth_min, depth_max = depth_np.min(), depth_np.max()
-            depth_norm = (depth_np - depth_min) / (depth_max - depth_min + 1e-8)
-            depth_img = (depth_norm * 255).astype(np.uint8)
-            depth_color = cv2.applyColorMap(depth_img, cv2.COLORMAP_JET)
-            frame_path = os.path.join(temp_frames_dir, f"frame_{i:04d}.png")
-            cv2.imwrite(frame_path, depth_color)
-            frames.append(depth_color)
-            # 新增：保存深度直方图
-            hist_path = os.path.join(temp_frames_dir, f"frame_{i:04d}_depth_hist.png")
-            plot_depthmap_histogram(depth_np, save_path=hist_path)
-        else:
-            # 用RGB图
-            image = render_pkg["render"]
-            if image.dim() == 3 and image.shape[0] == 3:  # [3, H, W]
-                image = image.permute(1, 2, 0)  # [H, W, 3]
-            image = torch.clamp(image, 0.0, 1.0)
-            image_np = (image.detach().cpu().numpy() * 255).astype(np.uint8)
-            frame_path = os.path.join(temp_frames_dir, f"frame_{i:04d}.png")
-            cv2.imwrite(frame_path, cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR))
-            frames.append(image_np)
-    
+    with torch.no_grad():
+        for i, viewpoint_cam in enumerate(tqdm(video_cameras, desc="Rendering video frames")):
+            render_pkg = render_func(viewpoint_cam, gaussians, pipe, background)
+            if use_colmap:
+                image = render_pkg["colmap"]
+                if image.dim() == 3 and image.shape[0] == 3:  # [3, H, W]
+                    image = image.permute(1, 2, 0)  # [H, W, 3]
+                image = torch.clamp(image, 0.0, 1.0)
+                image_np = (image.detach().cpu().numpy() * 255).astype(np.uint8)
+                frame_path = os.path.join(temp_frames_dir, f"frame_{i:04d}.png")
+                cv2.imwrite(frame_path, cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR))
+                del image
+            elif use_depth:
+                # 用深度图
+                depth = render_pkg["depthmap"]
+                if depth.dim() == 3:
+                    depth = depth.squeeze(0)
+                depth_np = depth.detach().cpu().numpy()
+                depth_min, depth_max = depth_np.min(), depth_np.max()
+                depth_norm = (depth_np - depth_min) / (depth_max - depth_min + 1e-8)
+                depth_img = (depth_norm * 255).astype(np.uint8)
+                depth_color = cv2.applyColorMap(depth_img, cv2.COLORMAP_JET)
+                frame_path = os.path.join(temp_frames_dir, f"frame_{i:04d}.png")
+                cv2.imwrite(frame_path, depth_color)
+                # 新增：保存深度直方图
+                hist_path = os.path.join(temp_frames_dir, f"frame_{i:04d}_depth_hist.png")
+                plot_depthmap_histogram(depth_np, save_path=hist_path)
+            else:
+                # 用RGB图，这种可能需要分析网络权重
+                image = render_pkg["render"]
+
+                if image.dim() == 3 and image.shape[0] == 3:  # [3, H, W]
+                    image = image.permute(1, 2, 0)  # [H, W, 3]
+                image = torch.clamp(image, 0.0, 1.0)
+                image_np = (image.detach().cpu().numpy() * 255).astype(np.uint8)
+
+                if HISTORY_SAVE and i % 36 == 0:
+                    history_img = image_np
+                    if render_func.__name__ == "render2":
+                        history_feature = render_pkg["featuremap"]
+                        history_feature = history_feature.view(
+                            image.shape[0], 
+                            image.shape[1], 
+                            int(np.sqrt(history_feature.shape[-1])), 
+                            int(np.sqrt(history_feature.shape[-1]))
+                            )
+                        history_denoiser = render_pkg["denoiser"].view(
+                            image.shape[0], 
+                            image.shape[1], 
+                            gaussians.denoiser.kernel_size, 
+                            gaussians.denoiser.kernel_size
+                            )  # [H, W, 9, 9]
+                        print(history_denoiser.shape)
+                        history_aggregation = render_pkg["aggregation"]  # [H, W, 3]
+
+                    if render_func.__name__ == "render3":
+                        history_feature = render_pkg["featuremap"]
+                        history_feature = history_feature.view(
+                            image.shape[0], 
+                            image.shape[1], 
+                            int(np.sqrt(history_feature.shape[-1])), 
+                            int(np.sqrt(history_feature.shape[-1]))
+                            )
+                        history_denoiser = render_pkg["denoiser"].view(
+                            image.shape[0], 
+                            image.shape[1], 
+                            gaussians.denoiser.kernel_size, 
+                            gaussians.denoiser.kernel_size
+                            )
+                        
+                        history_aggregation = render_pkg["aggregation"]
+                    history_feature = (history_feature - history_feature.min()) / (history_feature.max() - history_feature.min() + 1e-8)
+                    history_feature = (history_feature.detach().cpu().numpy() * 255).astype(np.uint8)
+                    history_denoiser = (history_denoiser - history_denoiser.min()) / (history_denoiser.max() - history_denoiser.min() + 1e-8)
+                    history_aggregation = (history_aggregation - history_aggregation.min()) / (history_aggregation.max() - history_aggregation.min() + 1e-8)
+                    history_denoiser = (history_denoiser.detach().cpu().numpy() * 255).astype(np.uint8)
+                    history_aggregation = (history_aggregation.detach().cpu().numpy() * 255).astype(np.uint8)
+                    print(history_aggregation.shape, history_aggregation.min(), history_aggregation.max())
+                    history_imgs.append(history_img)
+                    history_features.append(history_feature)
+                    history_denoisers.append(history_denoiser)
+                    history_aggregations.append(history_aggregation)
+                    clear_gpu_cache()
+
+                frame_path = os.path.join(temp_frames_dir, f"frame_{i:04d}.png")
+                cv2.imwrite(frame_path, cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR))
+        
     # 创建视频并保存到统一目录
     render_func_name = render_func.__name__
     video_name = f"{render_func_name}_iter_{iteration}_depth.mp4" if use_depth else f"{render_func_name}_iter_{iteration}.mp4"
-    create_video_from_frames(frames, temp_frames_dir, video_name)
+    create_video_from_frames(temp_frames_dir, temp_frames_dir, video_name)
     
+    if HISTORY_SAVE and (render_func.__name__ == "render2" or render_func.__name__ == "render3"):
+        np.savez(os.path.join(videos_dir, "images.npz"), *history_imgs)
+        np.savez(os.path.join(videos_dir, "denoisers.npz"), *history_denoisers)
+        np.savez(os.path.join(videos_dir, "features.npz"), *history_features)
+        np.savez(os.path.join(videos_dir, "aggregations.npz"), *history_aggregations)
     # 将视频移动到统一目录
     temp_video_path = os.path.join(temp_frames_dir, video_name)
     final_video_path = os.path.join(videos_dir, video_name)
@@ -93,7 +158,7 @@ def render_video_frames(scene, gaussians, pipe, background, render_func, output_
         shutil.rmtree(temp_frames_dir)
         print(f"Cleaned up temporary frames directory: {temp_frames_dir}")
 
-def create_video_from_frames(frames, output_dir, video_name):
+def create_video_from_frames(frames_dir, output_dir, video_name):
     """
     从帧序列创建视频
     
@@ -102,6 +167,9 @@ def create_video_from_frames(frames, output_dir, video_name):
         output_dir: 输出目录
         video_name: 视频文件名
     """
+    frames = [os.path.join(frames_dir, f) for f in os.listdir(frames_dir) if f.endswith('.png')]
+    frames.sort()
+    frames = [cv2.imread(f) for f in frames]
     if not frames:
         return
     

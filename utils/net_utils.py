@@ -91,6 +91,40 @@ class UNet(nn.Module):
         out = out.squeeze(0).permute(1, 2, 0)  # [H, W, 3]
         return out
 
+class SmallUNet(nn.Module):
+    def __init__(self, in_channels=64, out_channels=3, base_channels=64):
+        super(SmallUNet, self).__init__()
+        # Encoder   
+        self.enc1 = DoubleConv(in_channels, base_channels)
+        self.enc2 = DoubleConv(base_channels, base_channels * 2)
+        self.pool = nn.MaxPool2d(2)
+        # Decoder
+        self.up1 = nn.ConvTranspose2d(base_channels * 2, base_channels, kernel_size=2, stride=2)
+        self.dec1 = DoubleConv(base_channels * 2, base_channels)
+        self.final_conv = nn.Conv2d(base_channels, out_channels, kernel_size=1)
+        nn.init.kaiming_normal_(self.final_conv.weight)
+        if self.final_conv.bias is not None:
+            nn.init.zeros_(self.final_conv.bias)
+
+    def forward(self, x):
+        # x: [H, W, 64] -> [1, 64, H, W]
+        if x.dim() == 3:
+            x = x.permute(2, 0, 1).unsqueeze(0)
+        elif x.dim() == 4 and x.shape[0] != 1:
+            raise ValueError("Only single image input supported for this UNet3Layer")
+        # Encoder
+        e1 = self.enc1(x)  # [1, base, H, W]
+        e2 = self.enc2(self.pool(e1))  # [1, base*2, H/2, W/2]
+        # Decoder
+        up1 = self.up1(e2)  # [1, base, H, W]
+        cat1 = torch.cat([up1, e1], dim=1)  # [1, base*2, H, W]
+        d1 = self.dec1(cat1)  # [1, base, H, W]
+        out = self.final_conv(d1)  # [1, 3, H, W]
+        out = out.squeeze(0).permute(1, 2, 0)  # [H, W, 3]
+        return out
+
+
+
 # 用法示例
 def test_unet3layer():
     H, W = 64, 64
@@ -104,15 +138,15 @@ class CNN(nn.Module):
         super(CNN, self).__init__()
         padding = kernel_size // 2  # 保持空间尺寸不变
         self.conv1 = nn.Conv2d(in_channels, mid_channels, kernel_size=kernel_size, padding=padding)
-        self.conv2 = nn.Conv2d(mid_channels, mid_channels, kernel_size=kernel_size, padding=padding)
-        self.conv3 = nn.Conv2d(mid_channels, mid_channels, kernel_size=kernel_size, padding=padding)
-        self.conv4 = nn.Conv2d(mid_channels, mid_channels, kernel_size=kernel_size, padding=padding)
+        # self.conv2 = nn.Conv2d(mid_channels, mid_channels, kernel_size=kernel_size, padding=padding)
+        # self.conv3 = nn.Conv2d(mid_channels, mid_channels, kernel_size=kernel_size, padding=padding)
+        # self.conv4 = nn.Conv2d(mid_channels, mid_channels, kernel_size=kernel_size, padding=padding)
         self.conv5 = nn.Conv2d(mid_channels, out_channels, kernel_size=kernel_size, padding=padding)
         self.relu = nn.ReLU(inplace=True)
         self._init_weights()
 
     def _init_weights(self):
-        for m in [self.conv1, self.conv2, self.conv3, self.conv4, self.conv5]:
+        for m in [self.conv1, self.conv5]:
             nn.init.kaiming_normal_(m.weight)
             if m.bias is not None:
                 nn.init.zeros_(m.bias)
@@ -124,12 +158,45 @@ class CNN(nn.Module):
         elif x.dim() == 4 and x.shape[0] != 1:
             raise ValueError("Only single image input supported for this CNN5Layer")
         x = self.relu(self.conv1(x))  # [1, 100, H, W]
-        x = self.relu(self.conv2(x))  # [1, 100, H, W]
-        x = self.relu(self.conv3(x))  # [1, 100, H, W]
-        x = self.relu(self.conv4(x))  # [1, 100, H, W]
+        # x = self.relu(self.conv2(x))  # [1, 100, H, W]
+        # x = self.relu(self.conv3(x))  # [1, 100, H, W]
+        # x = self.relu(self.conv4(x))  # [1, 100, H, W]
         x = self.conv5(x)             # [1, 81, H, W]
         out = x.squeeze(0).permute(1, 2, 0)  # [H, W, 81]
         return out
+
+class PureCNN(nn.Module):
+    def __init__(self, in_channels=64, mid_channels=100, out_channels=3, kernel_size=5):
+        super(PureCNN, self).__init__()
+        padding = kernel_size // 2  # 保持空间尺寸不变
+        self.conv1 = nn.Conv2d(in_channels, mid_channels, kernel_size=kernel_size, padding=padding)
+        # self.conv2 = nn.Conv2d(mid_channels, mid_channels, kernel_size=kernel_size, padding=padding)
+        # self.conv3 = nn.Conv2d(mid_channels, mid_channels, kernel_size=kernel_size, padding=padding)
+        # self.conv4 = nn.Conv2d(mid_channels, mid_channels, kernel_size=kernel_size, padding=padding)
+        self.conv5 = nn.Conv2d(mid_channels, out_channels, kernel_size=kernel_size, padding=padding)
+        self.relu = nn.ReLU(inplace=True)
+        self._init_weights()
+
+    def _init_weights(self):
+        for m in [self.conv1, self.conv5]:
+            nn.init.kaiming_normal_(m.weight)
+            if m.bias is not None:
+                nn.init.zeros_(m.bias)
+
+    def forward(self, x):
+        # x: [H, W, 64] -> [1, 64, H, W]
+        if x.dim() == 3:
+            x = x.permute(2, 0, 1).unsqueeze(0)
+        elif x.dim() == 4 and x.shape[0] != 1:
+            raise ValueError("Only single image input supported for this CNN5Layer")
+        x = self.relu(self.conv1(x))  # [1, 100, H, W]
+        # x = self.relu(self.conv2(x))  # [1, 100, H, W]
+        # x = self.relu(self.conv3(x))  # [1, 100, H, W]
+        # x = self.relu(self.conv4(x))  # [1, 100, H, W]
+        x = self.conv5(x)             # [1, 81, H, W]
+        out = x.squeeze(0).permute(1, 2, 0)  # [H, W, 81]
+        return out
+
 
 class Denoiser(nn.Module):
     def __init__(self, kernel_size=9):
@@ -149,7 +216,7 @@ class Denoiser(nn.Module):
         # 2. 对unet_out每个像素做动态卷积
         # 先pad
         unet_out = unet_out.permute(2, 0, 1).unsqueeze(0)  # [1, 3, H, W]
-        unet_pad = F.pad(unet_out, [self.padding]*4, mode='reflect')  # [1, 3, H+8, W+8]
+        unet_pad = F.pad(unet_out, [self.padding]*4, mode='reflect')  # [4, 4, 4, 4] -> [1, 3, H+8, W+8]
         # unfold提取每个像素的9x9邻域
         patches = F.unfold(unet_pad, kernel_size=self.kernel_size)  # [1, 3*81, H*W]
         patches = patches.view(1, 3, self.kernel_size*self.kernel_size, H, W)  # [1, 3, 81, H, W]

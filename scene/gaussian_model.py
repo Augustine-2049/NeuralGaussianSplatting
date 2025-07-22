@@ -20,7 +20,7 @@ from utils.sh_utils import RGB2SH
 from simple_knn._C import distCUDA2
 from utils.graphics_utils import BasicPointCloud
 from utils.general_utils import strip_symmetric, build_scaling_rotation
-from utils.net_utils import FeatureToRGBMLP, UNet, CNN, Denoiser
+from utils.net_utils import FeatureToRGBMLP, UNet, CNN, Denoiser, PureCNN
 import tinycudann as tcnn
 
 class GaussianModel:
@@ -65,6 +65,7 @@ class GaussianModel:
         self.mlp = None
         self.unet = None
         self.cnn = None
+        self.pure_cnn = None
         self.denoiser = None
         self.embed_fn = None
 
@@ -189,17 +190,11 @@ class GaussianModel:
             self.unet = UNet(in_channels=64, out_channels=3, base_channels=64).cuda()
         if self.cnn is None:
             self.cnn = CNN(in_channels=64, mid_channels=100, out_channels=81, kernel_size=5).cuda()
+        if self.pure_cnn is None:
+            self.pure_cnn = PureCNN(in_channels=64, mid_channels=100, out_channels=3, kernel_size=5).cuda()
         if self.denoiser is None:
             self.denoiser = Denoiser(kernel_size=9).cuda()
 
-        # Option 2: separate modules. Slower but more flexible.
-        n_input_dims = 3
-        self.encoding = tcnn.Encoding(n_input_dims, {
-            "otype": "Frequency",
-            "n_frequencies": 4
-            },
-            dtype=torch.float32)
-        # self.encoding.n_output_dims
 
 
 
@@ -221,6 +216,12 @@ class GaussianModel:
         if self.cnn is None:
             self._init_networks()
         return self.cnn(features)
+
+    def get_pure_cnn_output(self, features):
+        """使用PureCNN网络处理特征"""
+        if self.pure_cnn is None:
+            self._init_networks()
+        return self.pure_cnn(features)
 
     def get_denoised_output(self, unet_out, cnn_out):
         """使用降噪网络处理输出"""
@@ -270,11 +271,11 @@ class GaussianModel:
             l.append({'params': self.unet.parameters(), 'lr': training_args.feature_lr, "name": "unet"})
         if self.cnn is not None:
             l.append({'params': self.cnn.parameters(), 'lr': training_args.feature_lr, "name": "cnn"})
+        if self.pure_cnn is not None:
+            l.append({'params': self.pure_cnn.parameters(), 'lr': training_args.feature_lr, "name": "pure_cnn"})
         if self.denoiser is not None:
-            l.append({'params': self.denoiser.parameters(), 'lr': training_args.feature_lr, "name": "denoiser"})
-        if self.encoding is not None:
-            l.append({'params': self.encoding.parameters(), 'lr': training_args.feature_lr, "name": "encoding"})
-
+            l.append({'params': self.denoiser.parameters(), 'lr': training_args.feature_lr, "name": "denoiser"}) 
+ 
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
         self.xyz_scheduler_args = get_expon_lr_func(lr_init=training_args.position_lr_init*self.spatial_lr_scale,
                                                     lr_final=training_args.position_lr_final*self.spatial_lr_scale,
